@@ -4,11 +4,12 @@
 #include <string>
 #include <algorithm>
 #include <vector>
+#include <map>
 
 using namespace std;
 
 const int MAX_KEY_LEN = 64;
-const int ORDER = 100;
+const int ORDER = 85; // B+ tree order (optimized for disk blocks)
 
 struct Entry {
     char key[MAX_KEY_LEN + 1];
@@ -68,14 +69,6 @@ private:
     void read_node(long pos, Node& node) {
         file.seekg(pos);
         file.read(reinterpret_cast<char*>(&node), sizeof(Node));
-    }
-    
-    int find_index_in_node(const Node& node, const Entry& entry) {
-        int i = 0;
-        while (i < node.num_keys && entry < node.entries[i]) {
-            i++;
-        }
-        return i;
     }
     
     void split_child(Node& parent, int index, long child_pos) {
@@ -168,7 +161,7 @@ private:
         }
     }
     
-    void delete_entry(long pos, const Entry& entry) {
+    void delete_entry(long pos, const Entry& entry, bool& found) {
         Node node;
         read_node(pos, node);
         
@@ -179,6 +172,7 @@ private:
             }
             
             if (i < node.num_keys && node.entries[i] == entry) {
+                found = true;
                 for (int j = i; j < node.num_keys - 1; j++) {
                     node.entries[j] = node.entries[j + 1];
                 }
@@ -192,38 +186,73 @@ private:
             }
             
             if (node.children[i] != -1) {
-                delete_entry(node.children[i], entry);
+                delete_entry(node.children[i], entry, found);
             }
         }
     }
     
-    long find_leftmost_leaf(long pos) {
+    void find_all(long pos, const char* key, vector<int>& values) {
+        if (pos == -1) return;
+        
         Node node;
         read_node(pos, node);
         
         if (node.is_leaf) {
-            return pos;
-        }
-        
-        return find_leftmost_leaf(node.children[0]);
-    }
-    
-    void find_all(const char* key, vector<int>& values) {
-        // Find the leftmost leaf node
-        long leaf_pos = find_leftmost_leaf(root_pos);
-        
-        // Traverse all leaf nodes via next_leaf pointers
-        while (leaf_pos != -1) {
-            Node leaf;
-            read_node(leaf_pos, leaf);
-            
-            for (int i = 0; i < leaf.num_keys; i++) {
-                if (strcmp(leaf.entries[i].key, key) == 0) {
-                    values.push_back(leaf.entries[i].value);
+            for (int i = 0; i < node.num_keys; i++) {
+                if (strcmp(node.entries[i].key, key) == 0) {
+                    values.push_back(node.entries[i].value);
                 }
             }
             
-            leaf_pos = leaf.next_leaf;
+            if (node.next_leaf != -1) {
+                Node next;
+                read_node(node.next_leaf, next);
+                if (next.num_keys > 0 && strcmp(next.entries[0].key, key) == 0) {
+                    find_all(node.next_leaf, key, values);
+                }
+            }
+        } else {
+            int i = 0;
+            while (i < node.num_keys && strcmp(node.entries[i].key, key) < 0) {
+                i++;
+            }
+            
+            if (i > 0 && node.children[i - 1] != -1) {
+                Node child;
+                read_node(node.children[i - 1], child);
+                if (child.is_leaf) {
+                    for (int j = 0; j < child.num_keys; j++) {
+                        if (strcmp(child.entries[j].key, key) == 0) {
+                            values.push_back(child.entries[j].value);
+                        }
+                    }
+                    
+                    long leaf_pos = child.next_leaf;
+                    while (leaf_pos != -1) {
+                        Node leaf;
+                        read_node(leaf_pos, leaf);
+                        bool found_key = false;
+                        for (int j = 0; j < leaf.num_keys; j++) {
+                            if (strcmp(leaf.entries[j].key, key) == 0) {
+                                values.push_back(leaf.entries[j].value);
+                                found_key = true;
+                            }
+                        }
+                        if (!found_key) break;
+                        leaf_pos = leaf.next_leaf;
+                    }
+                    return;
+                }
+            }
+            
+            for (int j = i; j <= node.num_keys; j++) {
+                if (node.children[j] != -1) {
+                    find_all(node.children[j], key, values);
+                }
+                if (j < node.num_keys && strcmp(node.entries[j].key, key) > 0) {
+                    break;
+                }
+            }
         }
     }
     
@@ -272,12 +301,13 @@ public:
     
     void remove(const char* key, int value) {
         Entry entry(key, value);
-        delete_entry(root_pos, entry);
+        bool found = false;
+        delete_entry(root_pos, entry, found);
     }
     
     vector<int> find(const char* key) {
         vector<int> values;
-        find_all(key, values);
+        find_all(root_pos, key, values);
         sort(values.begin(), values.end());
         return values;
     }
