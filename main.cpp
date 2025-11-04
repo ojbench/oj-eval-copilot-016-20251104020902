@@ -36,6 +36,11 @@ struct Pair {
 
 class BPlusTree {
 private:
+    struct Header {
+        int rootPos;
+        int freePos;
+    };
+    
     struct Node {
         bool isLeaf;
         int n; // number of keys
@@ -52,6 +57,23 @@ private:
     int rootPos;
     int freePos;
     
+    void readHeader() {
+        Header h;
+        file.seekg(0);
+        file.read((char*)&h, sizeof(Header));
+        rootPos = h.rootPos;
+        freePos = h.freePos;
+    }
+    
+    void writeHeader() {
+        Header h;
+        h.rootPos = rootPos;
+        h.freePos = freePos;
+        file.seekp(0);
+        file.write((char*)&h, sizeof(Header));
+        file.flush();
+    }
+    
     void readNode(int pos, Node& node) {
         file.seekg(pos);
         file.read((char*)&node, sizeof(Node));
@@ -66,6 +88,7 @@ private:
     int allocNode() {
         int pos = freePos;
         freePos += sizeof(Node);
+        writeHeader();
         return pos;
     }
     
@@ -166,16 +189,25 @@ private:
     }
     
 public:
-    BPlusTree(const string& filename) : rootPos(0), freePos(sizeof(Node)) {
+    BPlusTree(const string& filename) {
         file.open(filename, ios::in | ios::out | ios::binary);
         if (!file.is_open()) {
+            // Create new file
             file.clear();
             file.open(filename, ios::out | ios::binary);
             file.close();
             file.open(filename, ios::in | ios::out | ios::binary);
             
+            // Initialize header and root
+            rootPos = sizeof(Header);
+            freePos = sizeof(Header) + sizeof(Node);
+            writeHeader();
+            
             Node root;
             writeNode(rootPos, root);
+        } else {
+            // Load existing file
+            readHeader();
         }
     }
     
@@ -196,9 +228,9 @@ public:
             int oldRootPos = allocNode();
             writeNode(oldRootPos, root);
             newRoot.children[0] = oldRootPos;
+            writeNode(rootPos, newRoot);
             
             splitChild(rootPos, 0);
-            writeNode(rootPos, newRoot);
         }
         
         insertNonFull(rootPos, pair);
