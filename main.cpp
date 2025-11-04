@@ -205,9 +205,10 @@ private:
             return pos;
         }
         
-        // Find the appropriate child to descend
+        // In internal nodes, entries[i] is the smallest key in children[i+1]
+        // So we need to find the rightmost child where the separator <= key
         int i = 0;
-        while (i < node.num_keys && strcmp(key, node.entries[i].key) >= 0) {
+        while (i < node.num_keys && strcmp(node.entries[i].key, key) <= 0) {
             i++;
         }
         
@@ -219,6 +220,7 @@ private:
         long leaf_pos = find_start_leaf(root_pos, key);
         
         // Traverse leaf nodes until we no longer find the key
+        bool found_key = false;
         while (leaf_pos != -1) {
             Node leaf;
             read_node(leaf_pos, leaf);
@@ -229,15 +231,15 @@ private:
                 if (cmp == 0) {
                     values.push_back(leaf.entries[i].value);
                     found_in_this_leaf = true;
+                    found_key = true;
                 } else if (cmp > 0) {
                     // Keys are sorted, so we can stop
                     return;
                 }
             }
             
-            // If we didn't find the key in this leaf and it's after all entries, stop
-            if (!found_in_this_leaf && leaf.num_keys > 0 && 
-                strcmp(leaf.entries[leaf.num_keys - 1].key, key) < 0) {
+            // If we found the key before but not in this leaf, stop
+            if (found_key && !found_in_this_leaf) {
                 return;
             }
             
