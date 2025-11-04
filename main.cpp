@@ -197,7 +197,7 @@ private:
         }
     }
     
-    long find_leftmost_leaf(long pos) {
+    long find_start_leaf(long pos, const char* key) {
         Node node;
         read_node(pos, node);
         
@@ -205,22 +205,40 @@ private:
             return pos;
         }
         
-        return find_leftmost_leaf(node.children[0]);
+        // Find the appropriate child to descend
+        int i = 0;
+        while (i < node.num_keys && strcmp(key, node.entries[i].key) >= 0) {
+            i++;
+        }
+        
+        return find_start_leaf(node.children[i], key);
     }
     
     void find_all(const char* key, vector<int>& values) {
-        // Find the leftmost leaf node
-        long leaf_pos = find_leftmost_leaf(root_pos);
+        // Find the leaf that might contain the key
+        long leaf_pos = find_start_leaf(root_pos, key);
         
-        // Traverse all leaf nodes via next_leaf pointers
+        // Traverse leaf nodes until we no longer find the key
         while (leaf_pos != -1) {
             Node leaf;
             read_node(leaf_pos, leaf);
             
+            bool found_in_this_leaf = false;
             for (int i = 0; i < leaf.num_keys; i++) {
-                if (strcmp(leaf.entries[i].key, key) == 0) {
+                int cmp = strcmp(leaf.entries[i].key, key);
+                if (cmp == 0) {
                     values.push_back(leaf.entries[i].value);
+                    found_in_this_leaf = true;
+                } else if (cmp > 0) {
+                    // Keys are sorted, so we can stop
+                    return;
                 }
+            }
+            
+            // If we didn't find the key in this leaf and it's after all entries, stop
+            if (!found_in_this_leaf && leaf.num_keys > 0 && 
+                strcmp(leaf.entries[leaf.num_keys - 1].key, key) < 0) {
+                return;
             }
             
             leaf_pos = leaf.next_leaf;
