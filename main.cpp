@@ -267,7 +267,7 @@ public:
     vector<int> find(const string& key) {
         vector<int> result;
         
-        // Find starting leaf
+        // Find starting leaf - navigate to leftmost leaf that could contain key
         int pos = rootPos;
         while (true) {
             Node node;
@@ -277,6 +277,7 @@ public:
                 // Scan this and subsequent leaves
                 int visitCount = 0;
                 const int MAX_VISITS = 100000; // Safety limit
+                bool foundAny = false;
                 
                 while (pos != -1 && visitCount < MAX_VISITS) {
                     readNode(pos, node);
@@ -287,13 +288,16 @@ public:
                         if (cmp == 0) {
                             result.push_back(node.pairs[i].value);
                             foundInThisLeaf = true;
+                            foundAny = true;
                         } else if (cmp > 0) {
+                            // Passed the key, we're done
                             goto done;
                         }
                     }
                     
-                    // Only continue if we might find more
-                    if (node.n > 0 && strcmp(node.pairs[node.n - 1].key, key.c_str()) < 0) {
+                    // If we found the key before but not in this leaf, and last entry is less than key, we're done
+                    if (foundAny && !foundInThisLeaf && node.n > 0 && 
+                        strcmp(node.pairs[node.n - 1].key, key.c_str()) < 0) {
                         break;
                     }
                     
@@ -304,9 +308,9 @@ public:
                 break;
             }
             
-            // Navigate to child
+            // Navigate to child - find leftmost child that could contain key
             int i = 0;
-            while (i < node.n && strcmp(node.pairs[i].key, key.c_str()) <= 0) {
+            while (i < node.n && strcmp(node.pairs[i].key, key.c_str()) < 0) {
                 i++;
             }
             pos = node.children[i];
